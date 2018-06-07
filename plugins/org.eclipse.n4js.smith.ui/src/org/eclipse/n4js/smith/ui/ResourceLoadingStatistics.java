@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.eclipse.core.resources.IProject;
@@ -38,6 +39,7 @@ import org.eclipse.xtext.service.OperationCanceledManager;
 import org.eclipse.xtext.util.CancelIndicator;
 
 import com.google.common.base.Optional;
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
@@ -64,19 +66,23 @@ public class ResourceLoadingStatistics {
 		int countLoadedFromAST;
 		int countLoadedFromIndex;
 
+		/* the time it took to load and link the entire resource in millis */
+		long duration;
+
 		public FileLoadInfo(URI fileURI) {
 			this.fileURI = fileURI;
 		}
 
 		void println(PrintStream out) {
 			final String name = fileURI.lastSegment();
-			out.printf("%-50s   %3d   (%3d = %3d + %3d + %3d)",
+			out.printf("%-50s   %3d   (%3d = %3d + %3d + %3d) - %7d ms",
 					name,
 					countTotal,
 					countLoadedFromAST + countLoadedFromIndex + countBuiltIn,
 					countLoadedFromAST,
 					countLoadedFromIndex,
-					countBuiltIn);
+					countBuiltIn,
+					duration);
 			out.println();
 		}
 
@@ -200,6 +206,7 @@ public class ResourceLoadingStatistics {
 
 		final ResourceSet resSet = n4jsCore.createResourceSet(Optional.of(project));
 		final N4JSResource res = (N4JSResource) resSet.createResource(fileURI);
+		final Stopwatch stopwatch = Stopwatch.createStarted();
 		try {
 			res.load(Collections.emptyMap());
 		} catch (IOException e) {
@@ -207,9 +214,11 @@ public class ResourceLoadingStatistics {
 		}
 		res.getContents(); // trigger loading of AST
 		res.resolveLazyCrossReferences(cancelIndicator);
-
+		stopwatch.stop();
 		// now start counting what was loaded incidentally ...
-		return investigate(resSet);
+		FileLoadInfo result = investigate(resSet);
+		result.duration = stopwatch.elapsed(TimeUnit.MILLISECONDS);
+		return result;
 	}
 
 	/** This method makes the same assumptions as {@link #computeAndShowStatsFor(ResourceSet)}. */
